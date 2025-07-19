@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Arabesque Kitchen Orders Reports</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0; padding: 10px;
+    background: #fefefe;
+    color: #333;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  h1 {
+    color: #b2302d;
+    margin: 0 0 10px 0;
+  }
+  button {
+    background-color: #b2302d;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    margin: 5px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button:hover {
+    background-color: #d04d4a;
+  }
+  .lang-switch {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 50px;
+    height: 40px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 16px;
+  }
+  .search-input {
+    margin: 10px 0 20px 0;
+    padding: 8px;
+    font-size: 16px;
+    width: 100%;
+    max-width: 400px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 30px;
+    max-width: 1000px;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 8px 12px;
+    text-align: left;
+  }
+  th {
+    background-color: #b2302d;
+    color: white;
+  }
+  .section-title {
+    margin-top: 40px;
+    margin-bottom: 10px;
+    color: #b2302d;
+    font-size: 22px;
+    border-bottom: 2px solid #b2302d;
+    padding-bottom: 4px;
+  }
+  .edit-area {
+    display: none;
+    margin-top: 5px;
+  }
+  .edit-area textarea {
+    width: 100%;
+    height: 80px;
+    font-family: monospace;
+    font-size: 14px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+  }
+  .monthly-report {
+    max-width: 600px;
+    margin-top: 30px;
+  }
+</style>
+</head>
+<body>
+<button class="lang-switch" onclick="toggleLanguage()">AR</button>
+
+<header>
+  <h1 id="title">Arabesque Kitchen Orders Reports</h1>
+</header>
+
+<input type="text" id="searchInput" class="search-input" placeholder="Search by section or order content..." oninput="renderReports()" />
+
+<div id="reportsContainer"></div>
+
+<div class="monthly-report" id="monthlyReportContainer" style="display:none;">
+  <!-- محتوى التقرير الشهري سيُبنى ديناميكياً -->
+</div>
+
+<script>
+  let currentLang = 'en';
+
+  function toggleLanguage() {
+    currentLang = currentLang === 'en' ? 'ar' : 'en';
+    document.documentElement.lang = currentLang;
+    document.body.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+    document.querySelector('.lang-switch').textContent = currentLang === 'en' ? 'AR' : 'EN';
+
+    document.getElementById('title').textContent = currentLang === 'en' ? 
+      'Arabesque Kitchen Orders Reports' : 'تقارير طلبات مطبخ أرابيسك';
+    document.getElementById('searchInput').placeholder = currentLang === 'en' ? 
+      'Search by section or order content...' : 'بحث بالقسم أو محتوى الطلب...';
+
+    renderReports();
+  }
+
+  function getOrdersHistory() {
+    return JSON.parse(localStorage.getItem('ordersHistory')) || [];
+  }
+
+  // حفظ التعديلات على الطلب في التخزين
+  function saveEditedOrder(index, newText) {
+    let history = getOrdersHistory();
+    if (index < 0 || index >= history.length) return;
+    history[index].orderText = newText;
+    localStorage.setItem('ordersHistory', JSON.stringify(history));
+    renderReports();
+  }
+
+  // حذف تقرير
+  function deleteReport(index) {
+    if (!confirm(currentLang === 'en' ? 'Delete this report?' : 'هل تريد حذف هذا التقرير؟')) return;
+    let history = getOrdersHistory();
+    history.splice(index, 1);
+    localStorage.setItem('ordersHistory', JSON.stringify(history));
+    renderReports();
+  }
+
+  // طباعة الصفحة
+  function printPage() {
+    window.print();
+  }
+
+  // لتبديل عرض تعديل الطلب لكل تقرير
+  function toggleEditArea(idx) {
+    const area = document.getElementById('editArea-' + idx);
+    if (!area) return;
+    area.style.display = area.style.display === 'block' ? 'none' : 'block';
+  }
+
+  // استخراج الكمية من نص السطر (مثال: "3 x ItemName") - لدعم التقرير الشهري
+  function parseQuantityFromOrderText(orderText) {
+    const lines = orderText.split('\n');
+    const itemsCount = {};
+    lines.forEach(line => {
+      const match = line.match(/^\s*(\d+)\s*x\s*(.+)$/i);
+      if (match) {
+        let qty = parseInt(match[1]);
+        let itemName = match[2].trim();
+        itemName = itemName.replace(/\(.*\)/, '').trim();
+        if (!itemsCount[itemName]) itemsCount[itemName] = 0;
+        itemsCount[itemName] += qty;
+      }
+    });
+    return itemsCount;
+  }
+
+  // بناء التقرير الشهري مع تقارير منفصلة لكل قسم
+  function buildMonthlyReport() {
+    const history = getOrdersHistory();
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const monthlyCountBySection = {};
+
+    history.forEach(entry => {
+      const entryDate = new Date(entry.datetime);
+      if (entryDate.getFullYear() === currentYear && entryDate.getMonth() === currentMonth) {
+        const counts = parseQuantityFromOrderText(entry.orderText);
+        const sectionKey = entry.section;
+        if (!monthlyCountBySection[sectionKey]) {
+          monthlyCountBySection[sectionKey] = {};
+        }
+        for (const item in counts) {
+          if (!monthlyCountBySection[sectionKey][item]) {
+            monthlyCountBySection[sectionKey][item] = 0;
+          }
+          monthlyCountBySection[sectionKey][item] += counts[item];
+        }
+      }
+    });
+
+    const container = document.getElementById('monthlyReportContainer');
+    container.innerHTML = `<h2 id="monthlyReportTitle">${currentLang === 'en' ? 'Monthly Report Summary' : 'تقرير شهري ملخص'}</h2>`;
+
+    for (const [section, items] of Object.entries(monthlyCountBySection)) {
+      const sectionTitle = document.createElement('h3');
+      sectionTitle.textContent = currentLang === 'en' ? section : translateSection(section);
+      container.appendChild(sectionTitle);
+
+      const table = document.createElement('table');
+      table.style.marginBottom = '30px';
+
+      const thead = document.createElement('thead');
+      thead.innerHTML = `
+        <tr>
+          <th>${currentLang === 'en' ? 'Item' : 'الصنف'}</th>
+          <th>${currentLang === 'en' ? 'Total Quantity' : 'إجمالي الكمية'}</th>
+        </tr>`;
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+
+      for (const [item, qty] of Object.entries(items)) {
+        const tr = document.createElement('tr');
+        const tdItem = document.createElement('td');
+        tdItem.textContent = item;
+        const tdQty = document.createElement('td');
+        tdQty.textContent = qty;
+        tr.appendChild(tdItem);
+        tr.appendChild(tdQty);
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    const btnClose = document.createElement('button');
+    btnClose.textContent = currentLang === 'en' ? 'Close' : 'إغلاق';
+    btnClose.style.marginTop = '20px';
+    btnClose.onclick = closeMonthlyReport;
+    container.appendChild(btnClose);
+
+    container.style.display = 'block';
+  }
+
+  function closeMonthlyReport() {
+    document.getElementById('monthlyReportContainer').style.display = 'none';
+  }
+
+  // عرض التقارير المصفاة مع جدول منفصل لكل قسم
+  function renderReports() {
+    const container = document.getElementById('reportsContainer');
+    const history = getOrdersHistory();
+    const searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
+
+    const reportsBySection = {};
+
+    history.forEach((entry, idx) => {
+      if (
+        entry.section.toLowerCase().includes(searchTerm) ||
+        entry.orderText.toLowerCase().includes(searchTerm) ||
+        (entry.sectionName && entry.sectionName.toLowerCase().includes(searchTerm))
+      ) {
+        if (!reportsBySection[entry.section]) reportsBySection[entry.section] = [];
+        reportsBySection[entry.section].push({ ...entry, index: idx });
+      }
+    });
+
+    container.innerHTML = '';
+
+    if (Object.keys(reportsBySection).length === 0) {
+      container.innerHTML = currentLang === 'en' ? '<p>No reports found.</p>' : '<p>لا توجد تقارير.</p>';
+      return;
+    }
+
+    for (const [section, reports] of Object.entries(reportsBySection)) {
+      const sectionDiv = document.createElement('div');
+      sectionDiv.classList.add('section-report');
+
+      const sectionTitle = document.createElement('h2');
+      sectionTitle.classList.add('section-title');
+      sectionTitle.textContent = currentLang === 'en' ? section : translateSection(section);
+
+      sectionDiv.appendChild(sectionTitle);
+
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      thead.innerHTML = `
+        <tr>
+          <th>${currentLang === 'en' ? 'Date/Time' : 'التاريخ/الوقت'}</th>
+          <th>${currentLang === 'en' ? 'Order Text' : 'نص الطلب'}</th>
+          <th>${currentLang === 'en' ? 'Actions' : 'الإجراءات'}</th>
+        </tr>
+      `;
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+
+      reports.forEach(report => {
+        const tr = document.createElement('tr');
+        const tdDate = document.createElement('td');
+        tdDate.textContent = report.datetimeReadable;
+
+        const tdOrder = document.createElement('td');
+        tdOrder.style.whiteSpace = 'pre-line';
+        tdOrder.textContent = report.orderText;
+
+        const tdActions = document.createElement('td');
+
+        const btnEdit = document.createElement('button');
+        btnEdit.textContent = currentLang === 'en' ? 'Edit' : 'تعديل';
+        btnEdit.onclick = () => {
+          toggleEditArea(report.index);
+        };
+        tdActions.appendChild(btnEdit);
+
+        const btnDelete = document.createElement('button');
+        btnDelete.textContent = currentLang === 'en' ? 'Delete' : 'حذف';
+        btnDelete.style.backgroundColor = '#777';
+        btnDelete.onclick = () => {
+          deleteReport(report.index);
+        };
+        tdActions.appendChild(btnDelete);
+
+        const btnPrint = document.createElement('button');
+        btnPrint.textContent = currentLang === 'en' ? 'Print' : 'طباعة';
+        btnPrint.style.backgroundColor = '#0a66c2';
+        btnPrint.onclick = () => {
+          printSingleReport(report);
+        };
+        tdActions.appendChild(btnPrint);
+
+        tr.appendChild(tdDate);
+        tr.appendChild(tdOrder);
+        tr.appendChild(tdActions);
+
+        tbody.appendChild(tr);
+
+        const trEdit = document.createElement('tr');
+        trEdit.id = 'editArea-' + report.index;
+        trEdit.className = 'edit-area';
+
+        const tdEdit = document.createElement('td');
+        tdEdit.colSpan = 3;
+
+        const textarea = document.createElement('textarea');
+        textarea.value = report.orderText;
+        textarea.style.width = '100%';
+        textarea.style.height = '80px';
+
+        const btnSave = document.createElement('button');
+        btnSave.textContent = currentLang === 'en' ? 'Save' : 'حفظ';
+        btnSave.onclick = () => {
+          saveEditedOrder(report.index, textarea.value);
+          toggleEditArea(report.index);
+        };
+
+        const btnCancel = document.createElement('button');
+        btnCancel.textContent = currentLang === 'en' ? 'Cancel' : 'إلغاء';
+        btnCancel.style.backgroundColor = '#777';
+        btnCancel.onclick = () => {
+          toggleEditArea(report.index);
+        };
+
+        tdEdit.appendChild(textarea);
+        tdEdit.appendChild(document.createElement('br'));
+        tdEdit.appendChild(btnSave);
+        tdEdit.appendChild(btnCancel);
+
+        trEdit.appendChild(tdEdit);
+        tbody.appendChild(trEdit);
+      });
+
+      table.appendChild(tbody);
+      sectionDiv.appendChild(table);
+      container.appendChild(sectionDiv);
+    }
+
+    if (!document.getElementById('monthlyReportBtn')) {
+      const btnMonthly = document.createElement('button');
+      btnMonthly.id = 'monthlyReportBtn';
+      btnMonthly.textContent = currentLang === 'en' ? 'Show Monthly Report' : 'عرض التقرير الشهري';
+      btnMonthly.style.backgroundColor = '#277a1f';
+      btnMonthly.onclick = () => {
+        buildMonthlyReport();
+      };
+      container.appendChild(btnMonthly);
+    } else {
+      document.getElementById('monthlyReportBtn').textContent = currentLang === 'en' ? 'Show Monthly Report' : 'عرض التقرير الشهري';
+    }
+  }
+
+  function printSingleReport(report) {
+    const w = window.open('', '', 'width=600,height=600');
+    w.document.write('<pre style="font-family: monospace; white-space: pre-wrap;">');
+    w.document.write(`<strong>${currentLang === 'en' ? 'Date/Time:' : 'التاريخ/الوقت:'}</strong> ${report.datetimeReadable}\n\n`);
+    w.document.write(`<strong>${currentLang === 'en' ? 'Section:' : 'القسم:'}</strong> ${report.sectionName || report.section}\n\n`);
+    w.document.write(`<strong>${currentLang === 'en' ? 'Order:' : 'الطلب:'}</strong>\n${report.orderText}`);
+    w.document.write('</pre>');
+    w.document.close();
+    w.focus();
+    w.print();
+    w.close();
+  }
+
+  function translateSection(key) {
+    const dict = {
+      vegetables: { en: 'Vegetables', ar: 'خضار' },
+      hsm: { en: 'HSM Company', ar: 'شركة HSM' },
+      makro: { en: 'Makro', ar: 'ماكرو' },
+      chicken: { en: 'Chicken', ar: 'دجاج' },
+      meat: { en: 'Meat', ar: 'لحوم' }
+    };
+    if (dict[key]) return dict[key][currentLang];
+    return key;
+  }
+
+  window.onload = () => {
+    toggleLanguage();
+  };
+</script>
+</body>
+</html>
